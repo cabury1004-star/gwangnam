@@ -1,0 +1,5 @@
+*.pyd
+/dist
+build/app/Analysis-00.toc
+*.exe
+/build
