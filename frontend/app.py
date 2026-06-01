@@ -4,7 +4,9 @@ import json
 import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk  # ⭕ 그래프 이미지를 띄우기 위해 필요한 라이브러리
+import numpy as np
+from scipy.io import wavfile
+from PIL import Image, ImageTk  # ⭕ 안전한 png 로딩을 위해 다시 포함 (윤수 컴엔 pillow가 빌드 시 같이 묶일 겁니다)
 
 def run_frontend_app():
     root = tk.Tk()
@@ -29,23 +31,34 @@ def run_frontend_app():
 
         waveform_json_path = os.path.join(base_dir, "waveform_data.json")
 
-        # 기존에 남아있던 이전 그래프 이미지 파일이 있다면 미리 삭제 (꼬임 방지)
-        graph_img_path = os.path.join(base_dir, "graph.png")
-        if os.path.exists(graph_img_path):
-            try:
-                os.remove(graph_img_path)
-            except:
-                pass
+        # 기존 결과 파일들 청소
+        for target_file in ["graph.png", "fft_result.json"]:
+            t_path = os.path.join(base_dir, target_file)
+            if os.path.exists(t_path):
+                try: os.remove(t_path)
+                except: pass
+
+        try:
+            sample_rate, audio_data = wavfile.read(file_path)
+            if len(audio_data.shape) > 1:
+                audio_data = audio_data[:, 0]
+            
+            fft_segments = np.abs(np.fft.fft(audio_data[:44100]))
+            real_frequency_data = [float(x) for x in fft_segments[:len(fft_segments)//2]]
+
+        except Exception as e:
+            messagebox.showerror("파일 읽기 실패", f"선택한 WAV 파일을 읽을 수 없습니다.\n오류 내용: {str(e)}")
+            return
 
         mock_waveform_data = {
             "file_name": os.path.basename(file_path),
-            "sample_rate": 44100,
-            "frequency_data": [100, 200, 300, 1500, 300, 200, 100]
+            "sample_rate": int(sample_rate),
+            "frequency_data": real_frequency_data  
         }
 
         with open(waveform_json_path, "w", encoding="utf-8") as f:
             json.dump(mock_waveform_data, f, indent=4, ensure_ascii=False)
-        print("💾 [지후1 완료] 수식화 파일 저장 성공!")
+        print("💾 [지후1 완료] 진짜 주파수 데이터 수식화 성공!")
 
         print("\n🚀 [자동 릴레이 1단계] 윤수의 백엔드 프로그램(analysis.py)을 실행합니다...")
         
@@ -76,7 +89,7 @@ def run_frontend_app():
 
 def show_result_window(base_dir):
     result_json_path = os.path.join(base_dir, "fft_result.json")
-    graph_img_path = os.path.join(base_dir, "graph.png")
+    graph_img_path = os.path.join(base_dir, "graph.png")  # .png로 변경
     
     if not os.path.exists(result_json_path):
         messagebox.showerror("오류", "윤수의 분석 결과 파일(fft_result.json)을 찾을 수 없습니다.")
@@ -87,8 +100,7 @@ def show_result_window(base_dir):
 
     res_window = tk.Toplevel()
     res_window.title("지후2 - 최종 분석 리포트")
-    # 그래프 그림이 들어가므로 창 세로 크기를 550으로 넉넉하게 늘립니다.
-    res_window.geometry("600x550")  
+    res_window.geometry("600x580")  
     res_window.attributes("-topmost", True)
 
     tk.Label(res_window, text="🎵 오디오 주파수 분석 최종 리포트 🎵", font=("Malgun Gothic", 14, "bold"), fg="darkgreen").pack(pady=10)
@@ -99,16 +111,13 @@ def show_result_window(base_dir):
 
     tk.Label(res_window, text=info_text, font=("Malgun Gothic", 11), justify="left", wraplength=550).pack(pady=10, padx=20)
     
-    # ⭕ [윤수 그래프 액자 배치] 이미지 파일이 존재하면 화면에 띄웁니다.
+    # ⭕ Pillow 라이브러리를 이용하여 PNG 이미지를 안전하게 로딩하고 크기를 맞춰 배치
     if os.path.exists(graph_img_path):
         try:
             img = Image.open(graph_img_path)
-            # 창 크기에 맞게 그래프 크기 조절
-            img = img.resize((540, 240), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(img)
-            
             img_label = tk.Label(res_window, image=photo)
-            img_label.image = photo  # 가비지 컬렉션 방지 필수
+            img_label.image = photo  
             img_label.pack(pady=5)
         except Exception as e:
             tk.Label(res_window, text=f"[그래프 로딩 실패]: {str(e)}", fg="red").pack()
