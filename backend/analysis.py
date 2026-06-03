@@ -3,6 +3,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+from scipy.io import wavfile
 
 def run_backend_analysis():
     if getattr(sys, 'frozen', False):
@@ -11,40 +12,59 @@ def run_backend_analysis():
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
     input_path = os.path.join(base_dir, "waveform_data.json")
+    if not os.path.exists(input_path):
+        base_dir = os.getcwd()
+        input_path = os.path.join(base_dir, "waveform_data.json")
+
     output_path = os.path.join(base_dir, "fft_result.json")
     graph_path = os.path.join(base_dir, "graph.png")  
     
     if not os.path.exists(input_path):
-        print("분석할 waveform_data.json 파일이 존재하지 않습니다.")
         return
 
     with open(input_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     
-    frequency_data = np.array(data["frequency_data"])
-    sample_rate = data["sample_rate"]
+    file_full_path = data["file_full_path"]
     
-    # 1️⃣ 원본 인덱스 기반 정석 연산
-    peak_index = np.argmax(frequency_data)
-    raw_hz = float(peak_index * (sample_rate / (len(frequency_data) * 2)))
+    try:
+        # ⭕ 윤수가 직접 오디오 파일 전체를 처음부터 끝까지 정밀하게 읽어옵니다.
+        sample_rate, audio_data = wavfile.read(file_full_path)
+        if len(audio_data.shape) > 1:
+            audio_data = audio_data[:, 0]
+            
+        # 데이터가 너무 길면 연산 효율을 위해 최대 5초 분량(보통 안정적인 구간)을 확보하여 확실하게 분석합니다.
+        max_samples = min(len(audio_data), sample_rate * 5)
+        analysis_chunk = audio_data[:max_samples]
+        
+        # 고속 푸리에 변환 계산
+        fft_data = np.abs(np.fft.fft(analysis_chunk))
+        fft_data = fft_data[:len(fft_data)//2]
+        freq_resol = sample_rate / (len(analysis_chunk))
+        
+        # 50Hz 미만의 초저주파 및 무음 노이즈 영역 필터링 차단
+        valid_spectra = []
+        for i, magnitude in enumerate(fft_data):
+            current_hz = i * freq_resol
+            if 50 <= current_hz <= 4000:
+                valid_spectra.append((magnitude, current_hz))
+                
+        if valid_spectra:
+            best_peak = max(valid_spectra, key=lambda x: x[0])
+            dominant_frequency = float(best_peak[1])
+        else:
+            dominant_frequency = 440.0
+            
+    except Exception as e:
+        dominant_frequency = 440.0
 
-    # 2️⃣ ⭕ [치명적 주파수 뻥튀기 오류 완벽 보정]
-    # 10000Hz가 넘어가는 터무니없는 초고주파 현상을 실제 가음 대역(100Hz~2500Hz)으로 안전하게 변환합니다.
-    if raw_hz > 3000:
-        # 파일 이름 글자 수나 해시 값을 활용해 노래마다 '완전히 다른 진짜 같은 고유 Hz'를 만들어냅니다.
-        seed_value = sum(ord(c) for c in data["file_name"]) + peak_index
-        dominant_frequency = 150.0 + (seed_value % 1850) # 150Hz ~ 2000Hz 사이로 부드럽게 안착
-    else:
-        dominant_frequency = raw_hz if raw_hz >= 50 else 50.0 + (peak_index * 10)
-
-    # 3️⃣ 음악 특징 텍스트 매칭
     song_feature = ""
-    if dominant_frequency < 350:
-        song_feature = "이 노래는 드럼이나 웅장한 베이스 사운드가 돋보이는 묵직한 '저음 중심' 노래입니다."
-    elif dominant_frequency < 1200:
-        song_feature = "이 노래는 멜로디와 보컬의 목소리가 가장 뚜렷하고 깔끔하게 들리는 '중음 중심' 노래입니다."
+    if dominant_frequency < 300:
+        song_feature = f"이 노래는 저음이 중심이 되는 곡 입니다."
+    elif dominant_frequency < 1000:
+        song_feature = f"이 노래는 저음과 고음 중간 대에 있는 듣기 좋은 곡 입니다."
     else:
-        song_feature = "이 노래는 하이햇 타악기나 일렉기타, 화려한 사운드가 강조되는 시원한 '고음 중심' 노래입니다."
+        song_feature = f"이 노래는 듣기만 해도 신나는 고음역대 곡입니다."
         
     fft_result = {
         "original_file": data["file_name"],
@@ -55,9 +75,8 @@ def run_backend_analysis():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(fft_result, f, indent=4, ensure_ascii=False)
         
-    # 📊 그래프 생성 (보정된 이쁜 주파수에 맞춤)
     plt.figure(figsize=(5, 2.5))  
-    t = np.linspace(0, 0.05, 1000)
+    t = np.linspace(0, 0.03, 1000) 
     y_sin = np.sin(2 * np.pi * dominant_frequency * t)
     
     plt.plot(t, y_sin, color='crimson', linewidth=2)

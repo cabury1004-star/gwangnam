@@ -4,9 +4,7 @@ import json
 import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import numpy as np
-from scipy.io import wavfile
-from PIL import Image, ImageTk  # ⭕ 안전한 png 로딩을 위해 다시 포함 (윤수 컴엔 pillow가 빌드 시 같이 묶일 겁니다)
+from PIL import Image, ImageTk
 
 def run_frontend_app():
     root = tk.Tk()
@@ -31,49 +29,35 @@ def run_frontend_app():
 
         waveform_json_path = os.path.join(base_dir, "waveform_data.json")
 
-        # 기존 결과 파일들 청소
+        # 선제 청소
         for target_file in ["graph.png", "fft_result.json"]:
             t_path = os.path.join(base_dir, target_file)
             if os.path.exists(t_path):
                 try: os.remove(t_path)
                 except: pass
 
-        try:
-            sample_rate, audio_data = wavfile.read(file_path)
-            if len(audio_data.shape) > 1:
-                audio_data = audio_data[:, 0]
-            
-            fft_segments = np.abs(np.fft.fft(audio_data[:44100]))
-            real_frequency_data = [float(x) for x in fft_segments[:len(fft_segments)//2]]
-
-        except Exception as e:
-            messagebox.showerror("파일 읽기 실패", f"선택한 WAV 파일을 읽을 수 없습니다.\n오류 내용: {str(e)}")
-            return
-
+        # ⭕ 지후 창에서는 파일 경로만 안전하게 윤수에게 배달합니다 (데이터 누락 원천 차단)
         mock_waveform_data = {
-            "file_name": os.path.basename(file_path),
-            "sample_rate": int(sample_rate),
-            "frequency_data": real_frequency_data  
+            "file_full_path": file_path,
+            "file_name": os.path.basename(file_path)
         }
 
         with open(waveform_json_path, "w", encoding="utf-8") as f:
             json.dump(mock_waveform_data, f, indent=4, ensure_ascii=False)
-        print("💾 [지후1 완료] 진짜 주파수 데이터 수식화 성공!")
 
-        print("\n🚀 [자동 릴레이 1단계] 윤수의 백엔드 프로그램(analysis.py)을 실행합니다...")
-        
+        print("\n🚀 [자동 릴레이 1단계] 윤수의 백엔드 프로그램(analysis.exe)을 실행합니다...")
         analysis_exe_path = os.path.join(base_dir, "analysis.exe")
 
         try:
             if os.path.exists(analysis_exe_path):
-                subprocess.run([analysis_exe_path], check=True)
+                subprocess.run([analysis_exe_path], check=True, cwd=base_dir)
             else:
                 backend_script = os.path.join(base_dir, "..", "backend", "analysis.py")
                 if not os.path.exists(backend_script):
                     backend_script = os.path.join(base_dir, "backend", "analysis.py")
-                subprocess.run(["py", backend_script], check=True)
+                subprocess.run(["py", backend_script], check=True, cwd=base_dir)
             
-            print("✨ [릴레이 완료] 윤수 분석 종료. 지후2 창으로 바통 터치!")
+            print("✨ [릴레이 완료] 지후2 창으로 바통 터치!")
             show_result_window(base_dir)
 
         except subprocess.CalledProcessError as e:
@@ -89,7 +73,7 @@ def run_frontend_app():
 
 def show_result_window(base_dir):
     result_json_path = os.path.join(base_dir, "fft_result.json")
-    graph_img_path = os.path.join(base_dir, "graph.png")  # .png로 변경
+    graph_img_path = os.path.join(base_dir, "graph.png")
     
     if not os.path.exists(result_json_path):
         messagebox.showerror("오류", "윤수의 분석 결과 파일(fft_result.json)을 찾을 수 없습니다.")
@@ -111,7 +95,6 @@ def show_result_window(base_dir):
 
     tk.Label(res_window, text=info_text, font=("Malgun Gothic", 11), justify="left", wraplength=550).pack(pady=10, padx=20)
     
-    # ⭕ Pillow 라이브러리를 이용하여 PNG 이미지를 안전하게 로딩하고 크기를 맞춰 배치
     if os.path.exists(graph_img_path):
         try:
             img = Image.open(graph_img_path)
